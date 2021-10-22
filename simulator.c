@@ -205,13 +205,14 @@ void execute_instruction(instruction_t* instruction)
 * functionality: copy the content of the input file to Memory array.
 * this allows us to read the given file only one time, and spare the run time.
 */
-void memincopy(FILE* memin) {
+int memincopy(FILE* memin) {
 	int line = 0;
 	int temp = 0;
 	while (temp != -1) {
 		temp = fscanf(memin, "%08x", &(Memory[line]));
 		line++;
 	}
+	return line -1;
 }
 
 void set_code(instruction_t* instruction) {
@@ -285,13 +286,19 @@ void translate_line(instruction_t* instruction) {
 }
 
 
+void write_to_trace_input(FILE* trace, char * input_file, int lines_in_input) {
+	fprintf(trace, "program %s loaded, %d lines\n\n", input_file, lines_in_input);
+}
+
+
 /*
 * functionality: Writes the contents of the memory array to sram file in the desired format.
 */
-void write_to_sram(FILE* sram, FILE* trace) {
+void write_to_sram(FILE* sram) {
 	for (int i = 0; i < MEM_MAX_SIZE; i++) {
 		fprintf(sram, "%08x\n", Memory[i]);
 	}
+	fclose(sram);
 }
 
 void write_to_trace(FILE* trace, instruction_t* instruction) {
@@ -303,33 +310,50 @@ void write_to_trace(FILE* trace, instruction_t* instruction) {
 		fprintf(trace, ">>>> EXEC: R[%i] = %i %s %i <<<<\n\n", instruction->dst, Registers[instruction->src_0], instruction->code, Registers[instruction->src_1]);
 	}
 	if (instruction->opcode == 8) {
-		fprintf(trace, ">>>> EXEC: R[%i] = MEM[%i] = %08i <<<<\n\n", instruction->dst, Registers[instruction->src_1], instruction->imm);
+		fprintf(trace, ">>>> EXEC: R[%i] = MEM[%i] = %08x <<<<\n\n", instruction->dst, Registers[instruction->src_1], Memory[Registers[instruction->src_1]]);
 	}
 	if (instruction->opcode == 9) {
 		fprintf(trace, ">>>> EXEC: MEM[%i] = R[%i] = %08x <<<<\n\n", Registers[instruction->src_1], instruction->src_0, Registers[instruction->src_0]);
 	}
 	if (instruction->opcode >= 16 && instruction->opcode <= 20) {
-		fprintf(trace, ">>>> EXEC: %s %d, %d, %d <<<<\n\n", instruction->code, Registers[instruction->src_0], Registers[instruction->src_1], PC + 1);
+		fprintf(trace, ">>>> EXEC: %s %d, %d,", instruction->code, Registers[instruction->src_0], Registers[instruction->src_1]);
 	}
 	if (instruction->opcode == 24) {
-		fprintf(trace, ">>>> EXEC: HALT at PC %04x<<<<\n", PC);
+		fprintf(trace, ">>>> EXEC: HALT at PC");
 	}
 }
+
+void write_pc(FILE* trace, instruction_t* instruction) {
+	if (instruction->opcode >= 16 && instruction->opcode <= 20) {
+		fprintf(trace, " %d <<<<\n\n",PC);
+	}
+	if (instruction->opcode == 24) {
+		fprintf(trace, " %04x<<<<\n", PC -1);
+	}
+}
+
+write_to_trace_last_line(FILE* trace) {
+	fprintf(trace, "sim finished at pc %d, %d instructions", PC -1, Instrctions_Counter);
+	fclose(trace);
+}
+
 
 int main(int argc, char* argv[]) {
 	if (argc != 2) {
 		fprintf(stderr, "Worng number of args\n");
 		exit(1);
 	}
-	FILE* memin = fopen(argv[1], "r"); /*Opening all the input files*/
+	char * input_file = argv[1];
+	FILE* memin = fopen(input_file, "r"); /*Opening all the input files*/
 	FILE* sram = fopen("sram_out.txt", "w");
 	FILE* trace = fopen("trace.txt", "w");
+	int lines_in_input;
 	if (!trace || !sram || !memin) {
 		fprintf(stderr, "Unable to open file \n");
 		exit(1);
 	}
-	memincopy(memin);
-
+	lines_in_input = memincopy(memin);
+	write_to_trace_input(trace, input_file, lines_in_input);
 
 	while (Is_Running)
 	{
@@ -339,8 +363,10 @@ int main(int argc, char* argv[]) {
 		write_to_trace(trace, &instruction);
 		execute_instruction(&instruction);
 		PC += 1;
+		write_pc(trace, &instruction);
 		Instrctions_Counter += 1;
 	}
+	write_to_trace_last_line(trace);
 	write_to_sram(sram);
 	exit(0);
 }
